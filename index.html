@@ -1,0 +1,1799 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sınav Sistemi</title>
+<style>
+    * { box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+  body { background: #1a1a2e; color: white; margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+.container { background: #16213e; width: 95%; max-width: 700px; border-radius: 15px; padding: 30px; box-shadow: 0 8px 25px rgba(0,0,0,0.3); }
+  #ayarlar { text-align: center; }
+  #ayarlar input { padding: 8px; margin: 5px; width: 100px; border-radius: 5px; border: none; text-align: center; }
+  #ayarlar p { margin: 12px 0; color: #ddd; }
+  #kimlikEkrani { text-align: center; }
+  #kimlikEkrani input { padding: 12px; margin: 8px 0; width: 100%; border-radius: 8px; border: none; text-align: center; font-size: 16px; }
+  #kimlikEkrani p.uyari { color: #e94560; font-size: 13px; min-height: 18px; }
+  #gonderimDurum { font-size: 14px; color: #aaa; margin-top: 10px; min-height: 18px; }
+.soruEkrani { display: none; }
+.soruEkrani.aktif { display: block; }
+.soruNo { font-size: 14px; color: #aaa; margin-bottom: 10px; }
+.soru { font-size: 22px; margin-bottom: 25px; line-height: 1.5; }
+.secenek { background: #0f3460; padding: 15px; margin: 10px 0; border-radius: 10px; cursor: pointer; transition: 0.2s; border: 2px solid transparent; }
+.secenek:hover { background: #133b74; }
+.secenek.secili { border-color: #e94560; background: #2c2f58; }
+.dogru { background: #27ae60!important; border-color: #27ae60!important; }
+.yanlis { background: #e74c3c!important; border-color: #e74c3c!important; }
+  #sonucEkrani { display: none; text-align: center; }
+  #sonucEkrani h2 { font-size: 32px; }
+.gecti { color: #2ecc71; }
+.kaldi { color: #e74c3c; }
+  button { background: #e94560; color: white; border: none; padding: 14px 30px; font-size: 18px; border-radius: 10px; cursor: pointer; width: 100%; margin-top: 15px; }
+  button:hover { background: #d63851; }
+  button:disabled { background: #555; cursor: not-allowed; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div id="kimlikEkrani">
+    <h2>📝 Sınava Başlamadan Önce</h2>
+    <p style="color:#ddd;">Lütfen adını ve soyadını gir.</p>
+    <input type="text" id="adInput" placeholder="Adın">
+    <input type="text" id="soyadInput" placeholder="Soyadın">
+    <p class="uyari" id="kimlikUyari"></p>
+    <button onclick="kimlikOnayla()">Devam Et</button>
+  </div>
+
+  <div id="ayarlar" style="display:none;">
+    <h2>⚙️ Sınav Ayarları</h2>
+    <p id="soruSayisiBilgi"></p>
+    <label>Baraj Puanı: <input type="number" id="baraj" value="80"></label>
+    <label>Soru Başına Puan: <input type="number" id="soruPuani" value="1" min="0" step="0.1" oninput="toplamPuaniGuncelle()"></label>
+    <p id="toplamPuanBilgi"></p>
+    <input type="hidden" id="toplamPuan" value="137">
+    <button onclick="sinaviBaslat()">Sınava Başla</button>
+  </div>
+
+  <div id="sinavAlani"></div>
+
+  <div id="sonucEkrani">
+    <h2 id="sonucBaslik"></h2>
+    <p id="sonucPuan"></p>
+    <button onclick="cevapAnahtariniGoster()">Cevapları Gör</button>
+    <button onclick="location.reload()">Yeniden Başla</button>
+    <p id="gonderimDurum"></p>
+  </div>
+
+</div>
+
+<script>
+// EXCEL'DEN AKTARILAN 137 SORU
+const sorular = [
+
+  { soru: "Bayram Şahin kimdir ve nasıl biridir?", secenekler: ["Tıfılın tekidir", "Yakışıklı, karizmatik, asil ve haşin bir errrrrkektir", "Jony Bravo'nun Türk versiyonudur", "Kainatın en iyi ve en insaflı, adaletli operasyon müdürüdür"], dogru: 3, puan: 25 },
+  { soru: "Emrah'ın fiziksel yapısını en doğru şekilde hangisi tarif eder?", secenekler: ["Hafif, kısa ve rüzgârda dikkat edilmesi gereken biridir", "Güreş şampiyonu gibi heybetlidir", "NBA oyuncusu boyundadır", "Süper ağır sıklet boksördür"], dogru: 0, puan: 25 },
+  { soru: "Bayram Şahin bir gün işe geç kalırsa en muhtemel sebep nedir?", secenekler: ["Alarmı duymamıştır", "Operasyon müdürü olduğu için zaman onun ayağına gelir", "Jony Bravo ile toplantıdadır", "Kainatın adaletini dağıtırken mesaiyi unutmuştur"], dogru: 1, puan: 25 },
+  { soru: "Emrah güçlü bir rüzgârda ne yapmalıdır?", secenekler: ["Normal şekilde yürümelidir", "Cebine taş koymalıdır", "Bayram'ın arkasına saklanmalıdır", "Rüzgâra karşı operasyon planı hazırlamalıdır"], dogru: 1, puan: 25 },
+
+  {
+    "soru": "İGİÇ kurallarına dikkat etmek restoran çalışanlarının arasından kimin sorumluluğundadır?",
+    "secenekler": [
+      "Herkesin sorumluluğundadır",
+      "Ekip Üyesi",
+      "Servis Expert",
+      "Restoran Müdürü"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "Kimyasallar, gıda ürünlerinden en az kaç cm uzakta olmalıdır?",
+    "secenekler": [
+      "50 cm",
+      "30 cm",
+      "20 cm",
+      "15 cm"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Tüm ürünler yerden kaç cm yukarıda muhafaza edilmelidir?",
+    "secenekler": [
+      "5 cm",
+      "15 cm",
+      "20 cm",
+      "30 cm"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Aşağıda verilen sıcaklıklardan hangisi donuk ve soğuk depo için sırası ile doğrudur?",
+    "secenekler": [
+      "[-15℃ ,-21℃] / [1℃ ,7℃]",
+      "[-12℃ ,-23℃] / [1℃ ,4℃]",
+      "[-15℃ ,-20℃] / [1℃ ,6℃]",
+      "[-18℃ ,-23℃] / [1℃ ,4℃]"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Gıdaların soğuk depoda saklanmasının nedeni aşağıdakilerden hangisidir?",
+    "secenekler": [
+      "Hepsi",
+      "Bakterileri yok etmek",
+      "Bakterilerin ölmesini sağlamak",
+      "Bakterilerin çoğalmasını engellemek"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Restoranlarımızda bakterilerin gelişmesini aşağıdaki hangi iki faktörü kontrol ederek önleyebiliriz?",
+    "secenekler": [
+      "Isı-Besin",
+      "Zaman-Isı",
+      "Besin-Nem",
+      "Zaman-Nem"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Gıda ürünlerinin depolandığı raflar yerden en az kaç cm yukarıda olmalıdır?",
+    "secenekler": [
+      "30 cm",
+      "23 cm",
+      "20 cm",
+      "15 cm"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Gıda zehirlenmesine yol açan bakteriler için en uygun üreme ortamı aşağıdakilerden hangisidir?",
+    "secenekler": [
+      "Tuz",
+      "Süt",
+      "Domates",
+      "Ketçap"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Kırmızı etlerde görünen bakteri türü aşağıdakilerden hangisidir?",
+    "secenekler": [
+      "Salmonella",
+      "E-Coli",
+      "Bacilus Cerus",
+      "Clastrıdum perfiringes"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Bakteriler hangi sıcaklık aralığında ürerler ?",
+    "secenekler": [
+      "(5°C, 63°C)",
+      "(1°C , 4°C)",
+      "(4 °C, 60°C)",
+      "(-18°C , -29°C)"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+    {"soru": "Burger King'de vardiyanın en büyük sürprizi hangisidir?", "secenekler": ["Sakinlik", "Düzenli masa", "Tam vardiya sonunda gelen yoğunluk", "Herkesin zamanında çıkması"], "dogru": 2, "puan": 25},
+{
+    "soru": "Ellerimizi kaç adımda ve hangi sıklıkta yıkamalıyız?",
+    "secenekler": [
+      "10 adımda - saatte bir ve gerektikçe",
+      "12 adımda - her yarım saatte bir ve gerektikçe",
+      "8 adımda - saatte bir ve gerektikçe",
+      "12 adımda - gerektikçe"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Bakterilerin gelişimi için hangi faktörler gereklidir?",
+    "secenekler": [
+      "Işık-su-virüsler",
+      "Kimyasallar-toz-temizlik",
+      "Kuruluk-hijyen-sanitasyon",
+      "Isı-zaman-besin-nem"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+    {"soru": "Emrah'ın kahve makinesiyle ilişkisi aşağıdakilerden hangisine en yakındır?", "secenekler": ["İş arkadaşı", "Komşu", "Hayat arkadaşı", "Uzaktan tanıdığı biri"], "dogru": 2, "puan": 25},
+{
+    "soru": "Aşağıdakilerden hangisi gıda zehirlenmesi belirtileri arasında yer almaz?",
+    "secenekler": [
+      "Kusma",
+      "Bulantı",
+      "Karın ağrısı",
+      "Baş ağrısı"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Aşağıdakilerden hangisi patojen bakteriyi açıklamaktadır?",
+    "secenekler": [
+      "Hiçbiri",
+      "İnsan sağlığına zarar veren ve gıda zehirlenmelerine neden olan bakterilerdir",
+      "Yararlı bakterilerdir",
+      "Sindirim sistemi için gerekli olan bakterilerdir"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Renk kodlu temizlik sistemine göre mutfak fayansları temizliğinde aşağıdakilerden hangisi kullanılmalıdır?",
+    "secenekler": [
+      "Kırmızı tam bez – D10",
+      "Kırmızı yarım bez – D2",
+      "Kırmızı tam bez – D2",
+      "Kırmızı yarım bez – D10"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "H 400 kimyasalının kullanım alanı neresidir?",
+    "secenekler": [
+      "Arka oda",
+      "Mutfak -El yıkama lavabosu",
+      "Lobi alanı",
+      "Misafir lavaboları"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Mutfak bölgesinde hangi renk kodlu faraş seti kullanılmalıdır?",
+    "secenekler": [
+      "Sarı",
+      "Kırmızı",
+      "Yeşil",
+      "Mavi"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Ellerimizi dezenfekte ederken kullandığımız kimyasalın adı nedir?",
+    "secenekler": [
+      "D 10",
+      "H 400",
+      "H 500",
+      "H 100"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Servis tepsilerinin temizliği ile ilgili verilen bilgilerden hangisi doğrudur?",
+    "secenekler": [
+      "Yıkandıktan sonra D10 solüsyonunda bekleyen tepsiler yarım kırmızı bez ile silinir.",
+      "Üçlü aşamada yıkandıktan sonra   hava ile kurumaya bırakılır.",
+      "D2  ile Yıkanır ve hava ile kurumaya bırakılır",
+      "Tam kırmızı bez ile silinerek kullanılabilir"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Kimyasallarla ilgili aşağıdakilerden hangisi doğrudur ?",
+    "secenekler": [
+      "Hepsi",
+      "Ağzı kapalı etiketli kaplarda saklanmalıdır.",
+      "Birbirleri ile karıştırılmamalıdır.",
+      "Güneş ışığından uzak tutulmalıdır."
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "Aşağıdaki kimyasallardan hangisi ağır yağ içeren parçaların temizliğinde kullanılır?",
+    "secenekler": [
+      "D46",
+      "D2",
+      "D1",
+      "D3"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Aşağıdakilerden hangisi D10 solüsyonunun PPM değerinin yüksek çıkması durumunda yapılması gereken uygulamalardandır?",
+    "secenekler": [
+      "Hepsi",
+      "Solüsyona D10 eklenir",
+      "Su eklenerek D10 solüsyonu seyreltilir",
+      "Bir sonraki solüsyon hazırlığında daha az D10 kimyasalı kullanılmalıdır."
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "3'lü lavabonun 3. aşamasındaki sanitasyon çözeltisinin yoğunluğu kaç PPM olmalıdır?",
+    "secenekler": [
+      "300-400 ppm",
+      "450-600 ppm",
+      "400 ppm",
+      "250-600 ppm"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "D 44/saf su klor testinin yoğunluğu kaç PPM olmalıdır?",
+    "secenekler": [
+      "450 ppm",
+      "600 ppm",
+      "200 ppm",
+      "100 ppm"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Kızartma makinesi yağ seviyelerinin az olması aşağıdakilerden hangisine neden olur?",
+    "secenekler": [
+      "Ürünlerde fiziksel bulaşma görülür",
+      "Ürünler standarttan koyu renk gözükürler",
+      "Ürünler fazla yağlı pişer",
+      "Ürünlerin üst kısımları tam olarak pişmez"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Depolama ile ilgili maddelerden hangsi yanlıştır?",
+    "secenekler": [
+      "Koliler arasında mesafe olamadan bitişik bir şekilde muhafaza edilmelidir.",
+      "Depolanan ürünlerin koli ağızları kapalı olmalıdır.",
+      "İGİÇ e dikkat edilmelidir.",
+      "Ürünler yerden 15 cm yukarıda muhafaza edilmelidir."
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "Aşağıdakilerden hangisi tepsiye ilk önce yerleştirilmelidir?",
+    "secenekler": [
+      "Tatlı",
+      "Soğuk içecek",
+      "Sandviç",
+      "Patates"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+    {"soru": "Emrah'ın cebinde son 10 TL kaldıysa en mantıklı hareketi nedir?", "secenekler": ["Hemen harcamak", "Çay söylemek", "Parayı katlayıp daha değerli görünmesini sağlamak", "Bayram'dan borç istemek"], "dogru": 2, "puan": 25},
+{
+    "soru": "Servis bölgesi tezgah yüzeyi hangi bez ile temizlenmelidir?",
+    "secenekler": [
+      "Mavi üçgen ya da ucu bağlı bez",
+      "Kırmızı Üçgen ya da ucu bağlı bez",
+      "Kırmızı Tam Bez",
+      "Mavi Tam Bez"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Filtrasyon işleminin amacı aşağıdakilerden hangisidir?",
+    "secenekler": [
+      "Yağın sanitize edilmesi",
+      "Yağın dezenfekte edilmesi",
+      "Yağın ömrünün uzatılması",
+      "Yağın yenilenmesi"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Tuz karabiber karışımı dağıtıcı içerisinde ne kadar süre saklanabilir?",
+    "secenekler": [
+      "60 gün",
+      "40 gün",
+      "30 gün",
+      "20 gün"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "Bir vatı tam olarak filtre edebilmek için yağın kaç dakika sirküle (devirdaim) olması gerekmektedir?",
+    "secenekler": [
+      "10 dakika",
+      "7 dakika",
+      "5 dakika",
+      "2 dakika"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Mutfak ekipman ayakları temizliği için hangi renk bez kullanılmalıdır?",
+    "secenekler": [
+      "Mavi üçgen ya da ucu bağlı bez",
+      "Kırmızı Üçgen ya da ucu bağlı bez",
+      "Mavi Tam Bez",
+      "Kırmızı Tam Bez"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Lobi masa üstlerinin günlük temizliği için aşağıdaki bezlerden hangileri kullanılmalıdır?",
+    "secenekler": [
+      "Mavi üçgen ya da ucu bağlı bez",
+      "Kırmızı Üçgen ya da ucu bağlı bez",
+      "Mavi Tam Bez",
+      "Kırmızı Tam Bez"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Donuk olan ürünlerle temasta aşağıdakilerden hangi maşanın kullanılması gerekir?",
+    "secenekler": [
+      "Ahşap Maşa",
+      "Elle Alınmalıdır",
+      "Kırmızı Saplı Maşa",
+      "Mavi Saplı Maşa"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Aşağıdakilerden hangisi Whopper Burger ürünü içinde bulunmaz?",
+    "secenekler": [
+      "Whopper Eti",
+      "Chili Cheese sos",
+      "Ketçap",
+      "Mayonez"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Tavukburger sandviçe extra mayonez istenirse toplam kaç gr mayonez koyulur?",
+    "secenekler": [
+      "25 gr",
+      "40 gr",
+      "30 gr",
+      "20 gr"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Çikolatalı sufle üzerine dondurma kaç tur yapılarak doldurulur?",
+    "secenekler": [
+      "2 Tur 1 Kubbe",
+      "2 Tur",
+      "1 Tur 1 Kubbe",
+      "1 Tur"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+    {"soru": "Emrah'ın elinde kahve yoksa ne yapılmalıdır?", "secenekler": ["Normal hayatına devam edilir", "Hemen kahve ikmali yapılır", "Bayram aranır", "Vardiya bitirilir"], "dogru": 1, "puan": 25},
+{
+    "soru": "Tavuk Burger sandviçe turşu istenirse kaç adet,nereye koyulur?",
+    "secenekler": [
+      "1 adet /tabana",
+      "2 adet/tabana",
+      "2 adet /et üzerine",
+      "1 adet /et üzerine"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Chicken Royal sandviç içerisine kaç gram mayonez koyulmalıdır?",
+    "secenekler": [
+      "18 gr Taç-18 gr Taban",
+      "11 gr Taç-11 gr Taban",
+      "10 gr Taç-10 gr Taban",
+      "14 gr Taç-14 gr Taban"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Aşağıdakilerden hangisinde King Chicken gramajları doğru belirtilmiştir?",
+    "secenekler": [
+      "Toplamda 28 gr Mayonez -14 gr Salata",
+      "Toplamda 28 gr Mayonez -10 gr Salata",
+      "Toplamda 20 gr Mayonez-14 gr Salata",
+      "Toplamda 20 gr Mayonez-10 gr Salata"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Chicken Tenders ürünü porsiyon sayıları aşağıdakilerden hangisidir?",
+    "secenekler": [
+      "8-12",
+      "5-10-15",
+      "4-6-9",
+      "3-6-9"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Sundae dondurma hazırlarken bardağa kaç gram dondurma koyulur?",
+    "secenekler": [
+      "140 gr",
+      "110 gr",
+      "80 gr",
+      "125 gr"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Sundae dondurma misafire servis edilirken nasıl porsiyonlanır?",
+    "secenekler": [
+      "4 Tur 1 Kubbe",
+      "4 Tur",
+      "3 Tur 1 Kubbe",
+      "3 Tur"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Sandviçlerde kullanılan mayonez gibi lezzet vericilerin pen içi miktarları nasıl belirlenir?",
+    "secenekler": [
+      "Hepsi",
+      "Göz kararıyla kepçe yardımıyla",
+      "Hassas terazi kullanılarak",
+      "Kovadan direkt pene konularak"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+    {"soru": "Bayram Şahin kriz anında ne yapmalıdır?", "secenekler": ["Panik yapmak", "Çay içmek", "Adalet terazisini çıkarıp durumu değerlendirmek", "Emrah'ı öne sürmek"], "dogru": 2, "puan": 25},
+{
+    "soru": "Büyük Boy patates kaç gramdır?",
+    "secenekler": [
+      "170 gr",
+      "142 gr",
+      "116 gr",
+      "112 gr"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Dilimlenen domates soğutucuda ne kadar süre bekler?",
+    "secenekler": [
+      "Soğutucuda beklemez",
+      "24 saat",
+      "12 saat",
+      "4 saat"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Cheeseburger hazırlanırken kaç adet turşu kullanılmalıdır?",
+    "secenekler": [
+      "Turşu kullanılmaz",
+      "3 adet",
+      "2 adet",
+      "1 adet"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Aynı anda en fazla kaç adet Tavukburger eti pişirilir?",
+    "secenekler": [
+      "8 adet",
+      "6 adet",
+      "5 adet",
+      "4 adet"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Texas Somekhouse sandviç hangi ekmek ile hazırlanmalıdır?",
+    "secenekler": [
+      "5” Ekmek",
+      "3,75” Ekmek",
+      "4,25” Ekmek",
+      "4,5” Ekmek"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Steakhouse sandviç hangi ekmek ile hazırlanmalıdır?",
+    "secenekler": [
+      "4,5” Ekmek",
+      "4,25” Ekmek",
+      "3,75” Ekmek",
+      "5” Ekmek"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "Onion Rings ürününün Special Watta pişme süresi ne kadardır?",
+    "secenekler": [
+      "2.45 dakika",
+      "2.00 dakika",
+      "1.45 dakika",
+      "1.30 dakika"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "Çikolata Parçacıklı COOKIE ve Çikolatalı COOKIE ortam sıcaklığında ve soğutucu alanlarda ne kadar süre çözündürülmelidir?",
+    "secenekler": [
+      "24 Saat",
+      "48 Saat",
+      "36 Saat",
+      "12 Saat"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Soğuk odadan istasyona çıkartılan mayonez kaç saat sonra kullanıma girer?",
+    "secenekler": [
+      "6 Saat",
+      "4 Saat",
+      "2 Saat",
+      "1 Saat"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Aşağıdaki hangi iki ürün cook out sıcaklığı min 65 °C olması gereken ürünlerdir?",
+    "secenekler": [
+      "Elmalı Tatlı-Tavuk Burger",
+      "Çıtır Peynir-Soğan Halkası",
+      "Tavuk Burger- Chicken Royal",
+      "King Chicken- Tavuk Burger"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "King Chicken eti cook out sıcaklığı ne olmalıdır?",
+    "secenekler": [
+      "Min 74°C",
+      "Min 60°C",
+      "Min 68°C",
+      "68°C ile 79°C"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "Sandviçlerde kullanılan mayonez, salata gibi lezzet vericiler neden oda sıcaklığında bekletilir?",
+    "secenekler": [
+      "Lezzet vericilerin taze kalması için",
+      "Sandviçleri bakterilerden korumak için",
+      "Hepsi",
+      "Sandviçlerin sıcak şekilde misafire verilebilmesi için"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Whopper eti cook out sıcaklığı ne olmalıdır?",
+    "secenekler": [
+      "Min 74°C",
+      "Min 60°C",
+      "68°C ile 79°C",
+      "min.68°C"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Soğuk depoda muhafaza edilen dilim peynir ürün sıcaklığı ne olmalıdır?",
+    "secenekler": [
+      "4-10 °C",
+      "4-8 °C",
+      "4-6 °C",
+      "1-4 °C"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Planty Whopper eti cook out sıcaklığı ne olmalıdır?",
+    "secenekler": [
+      "Min 74°C",
+      "Min 60°C",
+      "Min 68°C",
+      "68°C ile 79°C"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Çay Suyu sıcaklığı ne olmalıdır?",
+    "secenekler": [
+      "79°C",
+      "60°C ile 72°C",
+      "79°C ile 85°C",
+      "68°C ile 79°C"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Soğuk içeceklerin servis sıcaklığı ne olmalıdır?",
+    "secenekler": [
+      "4-10 °C",
+      "4-8 °C",
+      "4-6 °C",
+      "1-4 °C"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Sevkiyat sırasında teslim alınan soğutulmuş ürünlerin sıcaklığı kaç derece olmalıdır?",
+    "secenekler": [
+      "4 °C",
+      "0-4 °C",
+      "2-4 °C",
+      "1-4 °C"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+    {"soru": "Bir çalışan 'Abi bugün çok sakin' dedikten 30 saniye sonra ne olabilir?", "secenekler": ["Daha da sakinleşir", "Herkes eve gider", "Bir anda müşteri yağmuru başlar", "Vardiya iptal olur"], "dogru": 2, "puan": 25},
+{
+    "soru": "Kullanıma alınan domates prebinin sıcaklığı ne olmalıdır?",
+    "secenekler": [
+      "1°C,4°C",
+      "4°C,60°C",
+      "18°C,29°C",
+      "12°C,15°C"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+    {"soru": "Emrah kahvesini bitirdiğinde en büyük risk nedir?", "secenekler": ["Bardağın boş kalması", "Kahve makinesinin yer değiştirmesi", "Kahvenin soğuması", "Hiçbir şey"], "dogru": 0, "puan": 25},
+{
+    "soru": "Hazırlanan soğan prepleri oda sıcaklığında toplam ne kadar süre muhafaza edilmelidir?",
+    "secenekler": [
+      "12 Saat",
+      "6 Saat",
+      "4 Saat",
+      "2 Saat"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Chicken Tenders ürünün Chute bekleme süresi ne kadardır?",
+    "secenekler": [
+      "Beklemez",
+      "20 Dakika",
+      "10 Dakika",
+      "5 Dakika"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Chicken Royale etlerinin ÇÜTÜ’de bekleme süresi aşağıdakilerden hangisidir?",
+    "secenekler": [
+      "1 Saat",
+      "30 Dakika",
+      "40 Dakika",
+      "45 Dakika"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Bardağa koyulan Fuse Tea içeceği bekleme süresi ne kadardır?",
+    "secenekler": [
+      "10 Dakika",
+      "5 Dakika",
+      "3 Dakika",
+      "Beklemez"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Dilim turşunun board üzerindeki kullanım süresi nedir?",
+    "secenekler": [
+      "4 saat",
+      "6 saat",
+      "12 saat",
+      "24 saat"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Whopper istasyonunda bulunan dilim peynir bekleme süresi ne kadardır?",
+    "secenekler": [
+      "8 Saat",
+      "6 Saat",
+      "2 Saat",
+      "4 Saat"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Çikolatalı sufle Chute’ da bekleme süresi kaç dakikadır?",
+    "secenekler": [
+      "5 Dakika",
+      "15 Dakika",
+      "Beklemez",
+      "10 Dakika"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "King nugget kızartma vatında pişme süresi nedir?",
+    "secenekler": [
+      "3.15 dakika",
+      "3.00 dakika",
+      "2.45 dakika",
+      "2.00 dakika"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "Kova Acı Sos soğutucu dolapta açılmış ambalaj ömrü aşağıdakilerden hangisidir?",
+    "secenekler": [
+      "10 Gün",
+      "8 Gün",
+      "7 Gün",
+      "5 Gün"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "King Nugget ürününün Çoklu ürün tutma ünitesinde (ÇÜTÜ) tutma süresi ne kadardır?",
+    "secenekler": [
+      "1 Saat",
+      "45 Dakika",
+      "40 Dakika",
+      "30 Dakika"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "İnsan derisinde bulunabilen; özellikle burun, ağız bölgesi ve tırnak içlerine yerleşebilen ve bu nedenle el yıkamanın ve kişisel hijyenin çok önemli olduğu bakteri aşağıdakilerden hangisidir?",
+    "secenekler": [
+      "Salmonella",
+      "Staphylococcus Aureus",
+      "E.Coli",
+      "Virüs"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Bakterinin bir kaynaktan yüksek risk taşıyan besine olan transferine ne denir?",
+    "secenekler": [
+      "Kalite problemi",
+      "Kalibrasyon eksikliği",
+      "Çapraz Bulaşma",
+      "Sağlık sorunu"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Aşağıdakilerden hangisi bakterilerin gelişebilmesi için gerekli olan unsurlar arasında yer almaz?",
+    "secenekler": [
+      "Isı",
+      "Kimyasallar",
+      "Zaman",
+      "Besin"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Gıda zehirlenmesinin asıl nedenleri nelerdir?",
+    "secenekler": [
+      "Bakteriler, virüsler",
+      "Kimyasallar",
+      "Zehirli Bitkiler",
+      "Hepsi"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Tehlike bölgesinin üzerindeki sıcaklıklardan bakteriler nasıl etkilenir?",
+    "secenekler": [
+      "Ölmeye başlarlar",
+      "Üremeleri yavaşlar ve durur",
+      "Üremeye başlarlar",
+      "Hiçbiri"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "D7 kimyasalı ile ilgili bilgilerden hangisi doğrudur?",
+    "secenekler": [
+      "Tuvalet ve pisuvar temizliğinde kullanılır",
+      "Gıdaya teması olmayan dikey paslanmaz çelik yüzeyleri parlatmak için kullanılır.",
+      "Gıda ile teması olan yüzeyleri parlatmak için kullanılır.",
+      "Genel temizlikte kullanılır."
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+    {"soru": "Emrah bir kapıyı açamıyorsa en olası sebep hangisidir?", "secenekler": ["Kapı kilitlidir", "Kapı çok ağırdır", "Kapı onu ciddiye almıyordur", "Bayram anahtarı almıştır"], "dogru": 2, "puan": 25},
+{
+    "soru": "Kimyasallar neden etiketli olmalıdır?",
+    "secenekler": [
+      "Kimyasalların birbirine karışmasını engellemek için",
+      "Yanlış ürün kullanımlarını engelleyebilmek için",
+      "İşe yeni başlayan personellerin kimyasallarla ilgili ayrımları yapabilmeleri için",
+      "Hepsi"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Ebro/ Testo cihazı temizliğinde hangi kimyasal kullanılmalıdır?",
+    "secenekler": [
+      "D2",
+      "D3",
+      "Kimyasal kullanılmaz",
+      "D1"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Aşağıdakilerden hangisi D3 kimyasalının kullanım alanlarından biridir?",
+    "secenekler": [
+      "Sebzeleri dezenfekte ederken kullanılır.",
+      "Ekipmanın üzerinde biriken ağır yağ lekelerini çıkarır",
+      "Ekipmanın parlak görünmesini sağlar",
+      "Yıkanan parçaları santize eder."
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Aşağıdaki kimyasallardan hangisi gün içinde sıklıkla kontrol edilip yenilenmelidir?",
+    "secenekler": [
+      "Yağ sökücü",
+      "Sanitizer Solüsyonlar",
+      "D44 dezenfektanı",
+      "Hiçbiri"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Aşağıda belirtilen durumların hangisinde ellerin tekrar yıkanması gerekmez?",
+    "secenekler": [
+      "Yemek molası dönüşünde",
+      "Eldiven değişiminde",
+      "Servis bölgesinden üretime geçildiğinde",
+      "H500 ile elleri dezenfekte ettikten sonra"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Yer yüzey temizliğinde kullanılan kimyasal hangisidir?",
+    "secenekler": [
+      "D10",
+      "D2",
+      "D3",
+      "D44"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Servis buz haznesi ne sıklıkta temizlenmelidir?",
+    "secenekler": [
+      "Her restoran kapanışında",
+      "Haftada bir kere",
+      "Ayda bir kere",
+      "10 günde bir kez"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "D10 hazırlarken sanitizer suyun sıcaklığı kaç derece olmalıdır?",
+    "secenekler": [
+      "49-55°C",
+      "Min.43°C",
+      "Min. 49°C",
+      "21-43°C"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "D4.4 aparatının arızalı olduğu durumlarda önerilen konsantrasyon miktarı aşağıdakilerden hangisidir?",
+    "secenekler": [
+      "3 lt suya 25 ml D44",
+      "1 lt suya 5 ml D44",
+      "1 lt suya 15 ml D44",
+      "10 lt suya 10 ml D44"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Kuru depo içerisinde gıda ambalajları nasıl muhafaza edilmelidir?",
+    "secenekler": [
+      "Ambalajlar kapalı bir şekilde",
+      "Kimyasallar ile arasında en az 30 cm uzaklık olacak şekilde",
+      "Temiz raflar üzerinde birbirini ezmeyecek şekilde",
+      "Hepsi"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Donuk depoda düzgün hava dolaşımının sağlanabilmesi için koliler ile duvar arasında ne kadar boşluk olmalıdır?",
+    "secenekler": [
+      "Yere göre değişir, farketmez",
+      "5 cm",
+      "6 cm",
+      "10 cm"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Kuru depo alanlarında duvarda veya tavanda açıklık, kapı altında boşluk olursa aşağıdaki durumlardan hangisi gerçekleşir?",
+    "secenekler": [
+      "Temizlik yapmak kolaylaşır",
+      "Ürünlerin depolanması kolaylaşır",
+      "Kemirgen veya haşere girebilir, açık alanlar kesinlikle kapatılmalıdır",
+      "Hepsi"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Paketi açılmış yarısı kullanılmış sarım kağıtları nasıl muhafaza edilmelidir?",
+    "secenekler": [
+      "Strech film ile sarılarak açıklık kalmayacak şekilde kapatılmalıdır.",
+      "Açık şekilde tutulabilir",
+      "Diğer sarım kağıtlarının arasına sıkıştırarark",
+      "Hepsi"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "Sevkiyat sırasında yapılan aşağıdaki uygulamalardan hangisi doğrudur?",
+    "secenekler": [
+      "Sevkiyat sırasında mutlaka ürünlerin genel kontrolü yapılmalıdır.",
+      "Donuk gelen ürünler depoya yerleştirilirken fanlar kapalı olmamalıdır.",
+      "Gelen ürünler depoya dizilirken mutlaka SKT kontrol edilir ve İGİÇ uygulaması sağlanır.",
+      "Hepsi"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "İlk yardım dolabı nerede olmalıdır?",
+    "secenekler": [
+      "Herkesin ulaşabileceği, sabit bir yerde",
+      "Arka odada",
+      "Personel odasında",
+      "Soğuk odada"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+    {"soru": "Emrah'ın kahve makinesine bakışını en iyi hangisi anlatır?", "secenekler": ["'Selam makine'", "'Bugün nasılsın?'", "'Biz birbirimizi anlıyoruz'", "'Sen olmasan ben ne yaparım?'"], "dogru": 3, "puan": 25},
+{
+    "soru": "Kaldırma ve taşıma kurallarına göre aşağıdakilerden hangisi yapılmamalıdır?",
+    "secenekler": [
+      "Ağır bir koliyi kaldırırken sırt dik, dizler bükük olmalıdır",
+      "Taşınacak koli vücuda yakın tutulmalıdır",
+      "Taşınılan yük görüş açısını daraltmamalı",
+      "Yön değiştirirken belden destek alarak istenilen yöne hareket edilebilir"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "İş Sağlığı Güvenliğinde Kişisel Koruyucunu Kullan-Whizard Eldivenini tak gibi Emredici talimatlar için hangi renk uyarı levhaları kullanılır?",
+    "secenekler": [
+      "Sarı",
+      "Kırmızı",
+      "Yeşil",
+      "Mavi"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Whizard eldiven kullanımı ile ilgili aşağıdaki şıklardan hangisi doğrudur?",
+    "secenekler": [
+      "İki ele takılması gerekir",
+      "Whizard eldiven üzerine tek kullanımlık eldiven takılarak kullanılmalıdır",
+      "Kesici aletlerin temizliğinde kullanılmalıdır",
+      "Hepsi"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+    {"soru": "Bayram'a 'Sen bugün çok karizmatiksin' denildiğinde doğru tepki hangisidir?", "secenekler": ["Teşekkür etmek", "Jony Bravo'ya selam çakmak", "Aynaya bakıp onaylamak", "Hepsini yapmak"], "dogru": 3, "puan": 25},
+{
+    "soru": "Aşağıdaki araçlardan hangisi yangının hava ile bağlantısını keserek yangının sönmesine yardımcı olur?",
+    "secenekler": [
+      "Yangın battaniyesi",
+      "Yangın dolabı ve hortumu",
+      "Hepsi",
+      "Yangın tüpü"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "Aşağıdakilerden hangi durum restoranda eğitim verilmesi gerektiğini belirtir?",
+    "secenekler": [
+      "Yüksek ziyaret notlarının olması",
+      "Yeni başlayan bir ekip üyesinin olması",
+      "Personel giriş çıkış oranlarının düşük olması",
+      "Restoran karlılığının yüksek olması"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Aynı anda kaç adet Bigking sandviç hazırlanabilir?",
+    "secenekler": [
+      "2 adet",
+      "3 adet",
+      "4 adet",
+      "1 adet"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "Külah dondurma hazırlarken külaha kaç gram dondurma koyulur?",
+    "secenekler": [
+      "115 gram",
+      "100 gram",
+      "80 gram",
+      "90 gram"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Çikolatalı sufle chutta ne kadar bekler?",
+    "secenekler": [
+      "Beklemez",
+      "10 dakika",
+      "15 dakika",
+      "30 dakika"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "Açılmış peynirin soğuk odada bekleme süresi ne kadardır?",
+    "secenekler": [
+      "4 saat",
+      "2 gün",
+      "3 gün",
+      "7 gün"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Çıtır Peynir chutta kaç dakika bekler?",
+    "secenekler": [
+      "10 dakika",
+      "15 dakika",
+      "20 dakika",
+      "Beklemez"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "Chicken Tenders ÇÜTÜ de en fazla kaç adet bekleyebilir?",
+    "secenekler": [
+      "6 adet",
+      "12 adet",
+      "20 adet",
+      "24 adet"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Mega Double Cheese Burger aynı anda en fazla kaç adet hazırlanır?",
+    "secenekler": [
+      "1 adet",
+      "2 adet",
+      "3 adet",
+      "4 adet"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Planty Whooper ÇÜTÜ de kaç dk bekler?",
+    "secenekler": [
+      "30 dakika",
+      "40 dakika",
+      "20 dakika",
+      "45 dakika"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Texas Smokhouse chutta kaç dakika bekler?",
+    "secenekler": [
+      "Beklemez",
+      "10 dakika",
+      "15 dakika",
+      "30 dakika"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Saat 12.00 de soğuk odadan çıkarılan ve saat 14.45 de kullanıma alınan Bigking sos saat kaçta atık olur?",
+    "secenekler": [
+      "18.00",
+      "16.45",
+      "14.00",
+      "16.00"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Aynı anda en fazla kaç adet Fish Royal eti pişirilir?",
+    "secenekler": [
+      "4 adet",
+      "6 adet",
+      "5 adet",
+      "8 adet"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Bigking sandviç hazırlanırken kaç gr soğan kullanılır?",
+    "secenekler": [
+      "14 gr taca",
+      "7 gr taca+7 gr tabana",
+      "11 gr taca",
+      "11gr taca+11 tabana"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Chicken Royal sandviçe extra göbek salata istenirse toplam kaç gr salata konulur?",
+    "secenekler": [
+      "14 gr",
+      "21 gr",
+      "28 gr",
+      "35 gr"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Aşağıdakilerin hangisinde patates gramajları doğru verilmiştir?",
+    "secenekler": [
+      "74gr-116 gr-142 gr-170 gr-244 gr-364 gr",
+      "72gr-112 gr-140 gr-170 gr-244 gr-375 gr",
+      "65gr-101 gr-122 gr-142 gr-244 gr-375 gr",
+      "74gr-120 gr-142 gr-170 gr-244 gr-375 gr"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "Patates tuzlama işlemi esnasında tuzluk kaç cm yükseklikte tutulmalıdır?",
+    "secenekler": [
+      "5 cm",
+      "45 cm",
+      "30 cm",
+      "15 cm"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Double cheese Burgere kaç gram hardal koyulur?",
+    "secenekler": [
+      "3 gr",
+      "7gr",
+      "9 gr",
+      "11 gr"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+    {"soru": "Vardiyada saat 21:59'da sipariş yağmuru başladıysa bu olay nedir?", "secenekler": ["Tesadüf", "Kader", "Operasyonel sürpriz", "Hava durumu"], "dogru": 2, "puan": 25},
+{
+    "soru": "Tavuk Burger'e turşu istenirse kaç adet,nereye koyulur?",
+    "secenekler": [
+      "1 adet /et üzerine",
+      "2 adet /et üzerine",
+      "2 adet/tabana",
+      "1 adet /tabana"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Texas Smokhouse içine kaç gram çıtır soğan koyulur?",
+    "secenekler": [
+      "14 gr",
+      "18 gr",
+      "21 gr",
+      "7 gr"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "Milk Shake servis sıcaklığı kaç derecedir?",
+    "secenekler": [
+      "1-4 ℃",
+      "-3/-4℃",
+      "-7.7 /-8.8℃",
+      "18-29 ℃"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Planty Whopper cook out sıcaklığı kaç derecedir?",
+    "secenekler": [
+      "68/79 ℃",
+      "68/77 ℃",
+      "Min 68 ℃",
+      "Min 60 ℃"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Gurme tavuk etinin cook out sıcaklığı kaç derece olmalıdır?",
+    "secenekler": [
+      "Min 60 ℃",
+      "68/79 ℃",
+      "68/77 ℃",
+      "Min 74 ℃"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Çalışma istasyonunda bekleyen peynir kaç derece olmalıdır?",
+    "secenekler": [
+      "1-4 ℃",
+      "18-29 ℃",
+      "-18/-23℃",
+      "Derecesi yoktur"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+    {"soru": "Emrah bir gün kahvesiz işe gelirse ekip ne yapmalıdır?", "secenekler": ["Sakin kalmalıdır", "Alarm vermelidir", "Kahve makinesini çalıştırıp Emrah'a haber vermelidir", "Hepsi"], "dogru": 3, "puan": 25},
+{
+    "soru": "Soğutucu dolapta bulunan açık süt kaç derece olmalıdır?",
+    "secenekler": [
+      "-3 / -4℃",
+      "1-4 ℃",
+      "18/29 ℃",
+      "1/10 C"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Kahve sıcaklığı kaç derece olmalıdır?",
+    "secenekler": [
+      "Min 60 ℃",
+      "min 85 ℃",
+      "79/85 ℃",
+      "min 65 ℃"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Kızarmış patatesin cook out sıcaklığı kaç derece olmalıdır?",
+    "secenekler": [
+      "min 75℃",
+      "min 60 ℃",
+      "60-99 ℃",
+      "min 74 ℃"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "ÇÜTÜ de bulunan hamburger eti en az kaç derece olmalıdır?",
+    "secenekler": [
+      "65/75 ℃",
+      "68/79 C",
+      "min 85 ℃",
+      "min 60℃"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Oda sıcaklığına ulaşan soğan prebi kaç derece olmalıdır?",
+    "secenekler": [
+      "1-4 ℃",
+      "18-29 ℃",
+      "4-6℃",
+      "-18/-23 ℃"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Aşağıdakilerden hangisi çapraz bulaşmaya örnek olabilir?",
+    "secenekler": [
+      "Buz alırken buz küreği kullanılması",
+      "4 saatte bir parçaların yıkanmaması",
+      "Mavi maşayla donuk etlerin alınması",
+      "Kırmızı maşayla pişmiş etlerin alınması"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Aşağıdakilerden hangisi Kritik Gıda Güvenliği olarak değerlendirilmelidir?",
+    "secenekler": [
+      "Arka oda su sıcaklığı min 49 ℃ olması",
+      "El yıkama lavabosu stoklarının tam olması",
+      "Dondurma sütü içinde leke olması",
+      "Köfteburger cook out sıcaklığının 70℃ ölçümesi"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Aşağıdakilerden hangisi Kritik Gıda Güvenliği konu başlıklarından biridir?",
+    "secenekler": [
+      "Sıcaklık kontrolü",
+      "Depo kontrolü",
+      "Servis süresi",
+      "Bakım onarım"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "Aşağıdakilerden hangisi 4 saatte bir yıkanması gereken parçalar arasındadır?",
+    "secenekler": [
+      "Bıçaklar ve kesme tahtaları",
+      "Dondurma makinesi kapak ve çırpıcıları",
+      "Çütü kapları",
+      "Hepsi"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "İstasyonda muhafaza edilen prepler ile kimyasallar arasındaki mesafe ne kadar olmalıdır?",
+    "secenekler": [
+      "10 cm",
+      "15 cm",
+      "30 cm",
+      "Mesafe yoktur"
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+  {
+    "soru": "Elinde kesik olan bir çalışanın aşağıdakilerden hangisini yapması gerekir?",
+    "secenekler": [
+      "Açık yara ile hiçbir çalışma istasyonunda çalışmamalıdır",
+      "Mavi yara bandı kullanması gerekir",
+      "Yara bandı üzerine eldiven giyilmelidir",
+      "Hepsi"
+    ],
+    "dogru": 3,
+    "puan": 25
+  },
+  {
+    "soru": "Whooper Cook outu için aşağıdaki bilgilerden hangisi doğrudur?",
+    "secenekler": [
+      "Et derece vermezse etin değdiği yüzeyler sanitize edilir.",
+      "Pişen et merkeze doğru 45 C lik açı ile batırılır.",
+      "Hepsi",
+      "68 ℃ yi gördüğümüzde kronometre başlatılır 15 sn içinde görülen en yüksek değer kaydedilir."
+    ],
+    "dogru": 2,
+    "puan": 25
+  },
+    {"soru": "Bir müdür '5 dakikaya geliyorum' diyorsa bu süre nasıl yorumlanmalıdır?", "secenekler": ["Tam 5 dakika", "Yaklaşık 10 dakika", "Duruma göre değişken", "Bir sonraki vardiya"], "dogru": 2, "puan": 25},
+{
+    "soru": "Aşağıda belirtilen polar değerlerinde hangisi doğru olarak ifade edilmiştir?",
+    "secenekler": [
+      "Hepsi",
+      "%23 ve üzeri ise yağın atık olduğunu anlamına gelmektedir",
+      "%18-22,5 arasında ise kontrol edilmelidir atık olabilir",
+      "%0-17,5 arası kullanılabilir"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "Açılmış dondurma sütünün bekleme süresi ne kadardır?",
+    "secenekler": [
+      "1 gün",
+      "2 gün",
+      "7 gün",
+      "Beklmez"
+    ],
+    "dogru": 1,
+    "puan": 25
+  },
+  {
+    "soru": "Ketçap sos çalışma istasyonunda ne kadar süre sıkma tüpünün içinde bekleyebilir?",
+    "secenekler": [
+      "24 saat",
+      "4 saat",
+      "6 saat",
+      "12 saat"
+    ],
+    "dogru": 0,
+    "puan": 25
+  },
+  {
+    "soru": "RODEO WHOPPER sandviçin chute da bekleme süresi ne kadardır?",
+    "secenekler": [
+      "30 dakika",
+      "Beklemez",
+      "10 dk",
+      "5 dk"
+    ],
+    "dogru": 2,
+    "puan": 25
+  }
+];
+
+let mevcutSoru = 0;
+let cevaplar = [];
+let toplamAlinanPuan = 0;
+let barajPuan = 80;
+let katilimciAd = '';
+let katilimciSoyad = '';
+
+// ↓↓↓ BURAYA Google Apps Script "Web App" URL'ini yapıştıracaksın (aşağıdaki kurulum adımlarına bak)
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwRlCy7B0I6CCL7mYL5YotjGsCjUKm9z7fs7tAXBTgZSrII-LOQD7qnbrUoYBuWKMPo/exec";
+
+function kimlikOnayla() {
+  const ad = document.getElementById('adInput').value.trim();
+  const soyad = document.getElementById('soyadInput').value.trim();
+  const uyari = document.getElementById('kimlikUyari');
+  if (!ad || !soyad) {
+    uyari.innerText = 'Lütfen adını ve soyadını eksiksiz gir.';
+    return;
+  }
+  katilimciAd = ad;
+  katilimciSoyad = soyad;
+  document.getElementById('kimlikEkrani').style.display = 'none';
+  document.getElementById('ayarlar').style.display = 'block';
+}
+
+function sonucuGoogleSheetseGonder() {
+  if (!GOOGLE_SCRIPT_URL || GOOGLE_SCRIPT_URL.indexOf('BURAYA') !== -1) return;
+
+  const detayliCevaplar = sorular.map((s, i) => ({
+    soru: s.soru,
+    verilenCevap: cevaplar[i] !== undefined ? s.secenekler[cevaplar[i]] : '(boş)',
+    dogruCevap: s.secenekler[s.dogru],
+    dogruMu: cevaplar[i] === s.dogru
+  }));
+
+  const veri = {
+    ad: katilimciAd,
+    soyad: katilimciSoyad,
+    tarih: new Date().toLocaleString('tr-TR'),
+    puan: toplamAlinanPuan,
+    toplamPuan: document.getElementById('toplamPuan').value,
+    baraj: barajPuan,
+    sonuc: toplamAlinanPuan >= barajPuan ? 'GEÇTİ' : 'KALDI',
+    cevaplar: detayliCevaplar
+  };
+
+  const durum = document.getElementById('gonderimDurum');
+  if (durum) durum.innerText = 'Sonuç kaydediliyor...';
+
+  fetch(GOOGLE_SCRIPT_URL, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(veri)
+  }).then(() => {
+    if (durum) durum.innerText = '✅ Sonuç kaydedildi.';
+  }).catch(() => {
+    if (durum) durum.innerText = '⚠️ Sonuç kaydedilemedi (internet bağlantını kontrol et).';
+  });
+}
+// Hafif seçenek tıklama sesi
+let sesContext;
+
+function tikSesi() {
+  try {
+    if (!sesContext) {
+      sesContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+
+    if (sesContext.state === 'suspended') {
+      sesContext.resume();
+    }
+
+    const oscillator = sesContext.createOscillator();
+    const gain = sesContext.createGain();
+
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(700, sesContext.currentTime);
+    oscillator.frequency.exponentialRampToValueAtTime(450, sesContext.currentTime + 0.045);
+
+    gain.gain.setValueAtTime(0.045, sesContext.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, sesContext.currentTime + 0.06);
+
+    oscillator.connect(gain);
+    gain.connect(sesContext.destination);
+
+    oscillator.start();
+    oscillator.stop(sesContext.currentTime + 0.06);
+  } catch (e) {
+    // Tarayıcı ses desteği yoksa sınav normal şekilde devam eder.
+  }
+}
+
+
+document.getElementById('soruSayisiBilgi').innerHTML =
+  `<b>${sorular.length} adet</b> sorunuz vardır.`;
+
+toplamPuaniGuncelle();
+
+function toplamPuaniGuncelle() {
+  let soruPuani = parseFloat(document.getElementById('soruPuani').value) || 0;
+  let toplamPuan = soruPuani * sorular.length;
+  document.getElementById('toplamPuan').value = toplamPuan;
+  document.getElementById('toplamPuanBilgi').innerHTML =
+    `Toplam Sınav Puanı: <b>${toplamPuan}</b>`;
+}
+
+function sinaviBaslat() {
+  barajPuan = parseFloat(document.getElementById('baraj').value) || 0;
+  let soruPuani = parseFloat(document.getElementById('soruPuani').value) || 0;
+  sorular.forEach(s => s.puan = soruPuani);
+  toplamPuaniGuncelle();
+
+  document.getElementById('ayarlar').style.display = 'none';
+  soruEkraniOlustur();
+  soruyuGoster(0);
+}
+
+function soruEkraniOlustur() {
+  const alan = document.getElementById('sinavAlani');
+  sorular.forEach((s, index) => {
+    let html = `<div class="soruEkrani" id="soru${index}">
+      <div class="soruNo">Soru ${index+1} / ${sorular.length} - Puan: ${s.puan}</div>
+      <div class="soru">${s.soru}</div>`;
+    s.secenekler.forEach((sec, i) => {
+      html += `<div class="secenek" onclick="cevapla(${index}, ${i})">${String.fromCharCode(65+i)}) ${sec}</div>`;
+    });
+    html += `</div>`;
+    alan.innerHTML += html;
+  });
+}
+
+function soruyuGoster(index) {
+  document.querySelectorAll('.soruEkrani').forEach(s => s.classList.remove('aktif'));
+  document.getElementById(`soru${index}`).classList.add('aktif');
+}
+
+function cevapla(soruIndex, secenekIndex) {
+  tikSesi();
+  cevaplar[soruIndex] = secenekIndex;
+  let soruDiv = document.getElementById(`soru${soruIndex}`);
+  soruDiv.querySelectorAll('.secenek').forEach((el, i) => {
+    el.classList.remove('secili');
+    if(i === secenekIndex) el.classList.add('secili');
+  });
+
+  setTimeout(() => {
+    if(soruIndex + 1 < sorular.length) {
+      soruyuGoster(soruIndex + 1);
+    } else {
+      sonucuHesapla();
+    }
+  }, 400);
+}
+
+function sonucuHesapla() {
+  toplamAlinanPuan = 0;
+  sorular.forEach((s, i) => {
+    if(cevaplar[i] === s.dogru) toplamAlinanPuan += s.puan;
+  });
+
+  document.getElementById('sinavAlani').style.display = 'none';
+  document.getElementById('sonucEkrani').style.display = 'block';
+
+  let gectiMi = toplamAlinanPuan >= barajPuan;
+  document.getElementById('sonucBaslik').innerHTML = (gectiMi? '<span class="gecti">🎉 TEBRİKLER GEÇTİNİZ!</span>' : '<span class="kaldi">❌ MAALESEF KALDINIZ</span>') + `<br><small style="color:#aaa;font-size:15px;">${katilimciAd} ${katilimciSoyad}</small>`;
+  document.getElementById('sonucPuan').innerHTML = `Puanınız: <b>${toplamAlinanPuan}</b> / ${document.getElementById('toplamPuan').value} <br> Baraj: ${barajPuan}`;
+
+  sonucuGoogleSheetseGonder();
+}
+
+function cevapAnahtariniGoster() {
+  document.getElementById('sonucEkrani').style.display = 'none';
+  document.getElementById('sinavAlani').style.display = 'block';
+  soruyuGoster(0);
+
+  sorular.forEach((s, i) => {
+    let soruDiv = document.getElementById(`soru${i}`);
+    soruDiv.querySelectorAll('.secenek').forEach((el, j) => {
+      el.style.pointerEvents = 'none';
+      if(j === s.dogru) el.classList.add('dogru');
+      if(j === cevaplar[i] && j!== s.dogru) el.classList.add('yanlis');
+    });
+  });
+
+  let nav = document.createElement('button');
+  nav.innerText = 'Sonraki Soru';
+  nav.onclick = () => {
+    if(mevcutSoru + 1 < sorular.length) {
+      mevcutSoru++;
+      soruyuGoster(mevcutSoru);
+    } else {
+      alert('Cevap anahtarı bitti');
+    }
+  };
+  document.getElementById('sinavAlani').appendChild(nav);
+}
+</script>
+</body>
+</html>
